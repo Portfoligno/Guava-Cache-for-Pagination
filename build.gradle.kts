@@ -17,4 +17,6 @@ repositories {
 dependencies {
   implementation(kotlin("stdlib"))
   api("com.google.guava:guava:20.0")
+
+  testImplementation("junit:junit:4.12")
 }

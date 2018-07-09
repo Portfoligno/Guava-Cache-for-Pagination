@@ -1,7 +1,8 @@
 package io.github.portfoligno.guava.cache.sorted
 
-import com.google.common.cache.Cache
 import com.google.common.cache.CacheBuilder
+import com.google.common.cache.CacheLoader
+import com.google.common.cache.LoadingCache
 import com.google.common.collect.ImmutableSortedMap
 import com.google.common.collect.Iterators
 import java.util.concurrent.ConcurrentSkipListSet
@@ -13,11 +14,7 @@ typealias Sorted<K, V> = ImmutableSortedMap<K, V>
 internal
 class PaginatingCacheImpl<K, V : Any>(
     private
-    val chunkSize: Int,
-    private
-    val loader: PaginatingCacheLoader<K, V>,
-    private
-    val delegate: Cache<K, Sorted<K, V>>
+    val delegate: LoadingCache<K, Sorted<K, V>>
 ) : PaginatingCache<K, V>
     where K : Any, K : Comparable<K> {
 
@@ -28,7 +25,12 @@ class PaginatingCacheImpl<K, V : Any>(
         cacheBuilder: CacheBuilder<Any, Any>): PaginatingCacheImpl<K, V>
         where K : Any, K : Comparable<K> {
       require(chunkSize > 0) { "chunkSize = $chunkSize" }
-      return PaginatingCacheImpl(chunkSize, loader, cacheBuilder.build())
+
+      return PaginatingCacheImpl(cacheBuilder.build(object : CacheLoader<K, Sorted<K, V>>() {
+        override
+        fun load(key: K) =
+            ImmutableSortedMap.copyOf(loader.loadGreaterThan(key, chunkSize))
+      }))
     }
   }
 
@@ -43,9 +45,7 @@ class PaginatingCacheImpl<K, V : Any>(
 
   private
   fun loadGreaterThan(key: K): Sorted<K, V> {
-    val m = delegate.get(key) {
-      ImmutableSortedMap.copyOf(loader.loadGreaterThan(key, chunkSize))
-    }
+    val m = delegate.get(key)
     keys.add(key)
     return m
   }

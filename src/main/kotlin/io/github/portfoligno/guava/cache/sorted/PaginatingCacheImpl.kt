@@ -1,105 +1,64 @@
 package io.github.portfoligno.guava.cache.sorted
 
 import com.google.common.cache.CacheBuilder
-import com.google.common.cache.CacheLoader
-import com.google.common.cache.LoadingCache
-import com.google.common.collect.ImmutableSortedMap
-import com.google.common.collect.Iterators
-import java.util.concurrent.ConcurrentSkipListSet
+import com.google.common.collect.Range
+import com.google.common.util.concurrent.UncheckedExecutionException
+import java.util.concurrent.ExecutionException
 import kotlin.collections.Map.Entry
-
-private
-typealias Sorted<K, V> = ImmutableSortedMap<K, V>
 
 internal
 class PaginatingCacheImpl<K, V : Any>(
-    private
-    val delegate: LoadingCache<K, Sorted<K, V>>
-) : PaginatingCache<K, V>
+    delegate: LoadingSortedCache<K, V>
+) : PaginatingCache<K, V>, LoadingSortedCache<K, V> by delegate
     where K : Any, K : Comparable<K> {
-
   companion object {
     fun <K, V : Any> create(
         chunkSize: Int,
         loader: PaginatingCacheLoader<K, V>,
         cacheBuilder: CacheBuilder<Any, Any>): PaginatingCacheImpl<K, V>
         where K : Any, K : Comparable<K> {
-      require(chunkSize > 0) { "chunkSize = $chunkSize" }
-
-      return PaginatingCacheImpl(cacheBuilder.build(object : CacheLoader<K, Sorted<K, V>>() {
+      val sortedCacheLoader = object : SortedCacheLoader<K, V> {
         override
-        fun load(key: K) =
-            ImmutableSortedMap.copyOf(loader.loadGreaterThan(key, chunkSize))
-      }))
-    }
-  }
-
-  private
-  val keys = ConcurrentSkipListSet<K>()
-
-  override
-  fun invalidateAll() {
-    keys.clear()
-    delegate.invalidateAll()
-  }
-
-  private
-  fun loadGreaterThan(key: K): Sorted<K, V> {
-    val m = delegate.get(key)
-    keys.add(key)
-    return m
-  }
-
-  private
-  fun getGreaterThan(key: K): Sorted<K, V>? {
-    fun go(m: Sorted<K, V>): Sorted<K, V>? {
-      if (!m.isEmpty()) {
-        if (m.lastKey() > key) {
-          return m.tailMap(key, false) // Exclusive
-        }
-        return null
-      }
-      return m
-    }
-
-    for (k in keys
-        .headSet(key, true) // Inclusive
-        .descendingSet()) {
-      val m = delegate.getIfPresent(k)
-
-      if (m != null) {
-        return go(m)
-      }
-      if (keys.remove(k)) {
-        val m1 = delegate.getIfPresent(k)
-
-        if (m1 != null) {
-          // Put it back if it becomes available again
-          keys.add(k)
-          return go(m1)
+        fun loadChunk(cut: Cut<K>, size: Int): Iterable<Entry<K, V>> {
+          if (cut is Cut.Bounded.Open) {
+            // Only left open ranges are supported
+            return loader.loadGreaterThan(cut.endpoint, size)
+          }
+          throw UnsupportedOperationException(cut.javaClass.simpleName)
         }
       }
+
+      return PaginatingCacheImpl(LoadingSortedCacheImpl.create(chunkSize, sortedCacheLoader, cacheBuilder))
     }
-    return null
   }
 
   override
-  fun getAllGreaterThan(key: K): Iterable<Entry<K, V>> = Iterable {
-    Iterators.concat(object : AbstractIterator<Iterator<Entry<K, V>>>() {
-      var cursor = key
+  fun getAllGreaterThan(key: K): Iterable<Entry<K, V>> {
+    val iterable = get(Range.greaterThan(key))
 
-      override
-      fun computeNext() {
-        val m = getGreaterThan(cursor) ?: loadGreaterThan(cursor)
+    return Iterable {
+      val delegate = iterable.iterator()
 
-        if (!m.isEmpty()) {
-          cursor = m.lastKey()
-          setNext(m.entries.iterator())
+      object : Iterator<Entry<K, V>> {
+        // ExecutionException is thrown instead for compatibility
+        fun <T> rethrowChecked(block: () -> T): T =
+            try {
+              block()
+            }
+            catch (e: UncheckedExecutionException) {
+              throw ExecutionException(e.cause)
+            }
+
+        override
+        fun hasNext() = rethrowChecked {
+          delegate.hasNext()
         }
-        else {
-          done()
+
+        override
+        fun next() = rethrowChecked {
+          delegate.next()
         }
       }
-    })
+    }
   }
 }

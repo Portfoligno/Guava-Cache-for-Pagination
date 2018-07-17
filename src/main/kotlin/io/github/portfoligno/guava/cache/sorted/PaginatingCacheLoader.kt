@@ -2,6 +2,7 @@ package io.github.portfoligno.guava.cache.sorted
 
 import kotlin.collections.Map.Entry
 
+@Deprecated("Use SortedCacheLoader instead")
 interface PaginatingCacheLoader<K, out V : Any>
     where K : Any, K : Comparable<K> {
   /**

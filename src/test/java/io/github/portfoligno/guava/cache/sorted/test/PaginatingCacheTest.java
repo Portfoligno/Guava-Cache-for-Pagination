@@ -2,6 +2,7 @@ package io.github.portfoligno.guava.cache.sorted.test;
 
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import io.github.portfoligno.guava.cache.sorted.PaginatingCache;
 import io.github.portfoligno.guava.cache.sorted.PaginatingCacheLoader;
 import io.github.portfoligno.guava.cache.sorted.SortedCacheBuilder;
@@ -36,10 +37,9 @@ public class PaginatingCacheTest {
     cache = SortedCacheBuilder
         .newBuilder()
         .build(512, new PaginatingCacheLoader<Long, Integer>() {
-          @NotNull
           @Override
-          public Iterable<Entry<Long, Integer>> loadGreaterThan(@NotNull Long key, int amount) {
-            return source.tailMap(key, false).entrySet();
+          public @NotNull Iterable<Entry<Long, Integer>> loadGreaterThan(@NotNull Long key, int amount) {
+            return Iterables.limit(source.tailMap(key, false).entrySet(), amount);
           }
         });
   }
